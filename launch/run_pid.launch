@@ -1,0 +1,24 @@
+<launch>
+    <group ns="br2">    
+    <arg name="depth_kp" default="1.0"/>
+    <arg name="depth_ki" default="0.0"/>
+    <arg name="depth_kd" default="0.0"/>
+    <arg name="depth_upper_limit" default="3.0"/>
+    <arg name="depth_lower_limit" default="-3.0"/> 
+
+    <node name="pid_depth" pkg="pid" type="controller" >
+      <param name="Kp" value="$(arg depth_kp)" />
+      <param name="Ki" value="$(arg depth_ki)" />
+      <param name="Kd" value="$(arg depth_kd)" />
+      <param name="upper_limit" value="$(arg depth_upper_limit)" />
+      <param name="lower_limit" value="$(arg depth_lower_limit)" />
+      <param name="windup_limit" value="20" />
+
+      <param name="max_loop_frequency" value="100.0" />
+      <param name="min_loop_frequency" value="100.0" />
+      <remap from="setpoint" to="pid/depth/setpoint"/>
+      <remap from="control_effort" to="pid/depth/control_effort"/>
+      <remap from="state" to="pid/depth/state"/>
+    </node>
+    </group>
+</launch>

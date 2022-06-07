@@ -1,0 +1,63 @@
+<?xml version="1.0"?>
+<launch>
+
+  <!-- roscore automatically started by roslaunch -->
+  <!-- start mavlink node -->
+  <!-- px4.launch already run by ROV -->
+  <!-- <include file="$(find bluerov)/launch/apm.launch" /> -->
+
+  <!-- start joy_node -->
+    <group ns="br4"> 
+    <arg name="ns" default="br4"/>
+    <node respawn="true" pkg="joy" type="joy_node" name="joy_node" output="screen">
+      <param name="dev" value="/dev/input/js0" type="string"/>
+    </node> 
+
+    <!-- start telexbox to convert joystick values into vel -->
+    <node pkg="model_validation_rov" type="teleop_xbox" name="teleop_xbox" output="screen">
+    </node>  
+
+    <arg name="arg1" default="--device /dev/ttyUSB0"/>  
+
+    <!-- Parameters -->
+
+    <!-- Motion validation : motion = "surge", "sway", "yaw" or "heave"-->
+    <arg name="motion" default= "heave"/>  
+
+    <!-- Heading -->
+     <arg name="Kp_psi" default= "0.0149"/>  
+     <arg name="Ki_psi" default= "0.0"/>
+     <arg name="Kd_psi" default= "0.00"/>
+    
+     <!-- Heave -->
+     <arg name="Kp_z" default= "2"/>  
+     <arg name="Ki_z" default= "0.0"/>
+     <arg name="Kd_z" default= "0.00"/>
+
+    <!-- Heave Sliding mode -->
+    <arg name="K" default="0.5"/>
+    <arg name="phi" default="0.95"/>
+    <arg name="rhoo0" default="0.35"/>
+    <arg name="rhoo1" default="0.32"/>
+     
+     
+     
+    <!-- Launch the script file -->
+    <node respawn="true" pkg="model_validation_rov" type="listener_model_validation.py" name="listener" output="screen" args="--motion $(arg motion) --Kp_psi $(arg Kp_psi) --Ki_psi $(arg Ki_psi) --Kd_psi $(arg Kd_psi) --Kp_z $(arg Kp_z) --Ki_z $(arg Ki_z) --Kd_z $(arg Kd_z) --K $(arg K) --phi $(arg phi) --rhoo0 $(arg rhoo0) --rhoo1 $(arg rhoo1)"
+           ></node>
+  
+    <!-- Recording : bags name -->
+    <!-- <arg name="bag_name" default="ModelValidation_motion$(arg motion)"/>
+
+    <node name="bag_record" pkg="rosbag" type="record" args="record -o $(find model_validation_rov)/bags/$(arg bag_name).bag /$(arg ns)/distance /$(arg ns)/mavros/rc/override /$(arg ns)/angular_velocity /$(arg ns)/angle_degree /$(arg ns)/force /$(arg ns)/linear_velocity">
+       </node> -->
+
+  </group>
+
+</launch>
+   
+   
+
+
+
+
