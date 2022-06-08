@@ -54,7 +54,7 @@ Vmin_mot = 1100
 # ---------- Conditions --------------------------
 init_a0 = True      
 init_p0 = True
-test_Model = True
+test_Model = False
 enable_depth = True  # don't Publish the depth data until asked
 enable_ping = True
 arming = False
@@ -529,7 +529,7 @@ def subscriber():
 
 
 if __name__ == '__main__':
-    #armDisarm(False)  # Not automatically disarmed at startup
+    armDisarm(False)  # Not automatically disarmed at startup
     rospy.init_node('autonomous_MIR', anonymous=False)
     pub_msg_override = rospy.Publisher("mavros/rc/override", OverrideRCIn, queue_size=10, tcp_nodelay=True)
     pub_angle_degre = rospy.Publisher( 'angle_degree', Twist, queue_size=10, tcp_nodelay=True)
