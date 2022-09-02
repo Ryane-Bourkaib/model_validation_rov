@@ -43,20 +43,29 @@ print(f"c2 = {c2}")
 # fit the +ve thrust
 y_above = np.array(data_above_1500[' PWM (µs)'])
 x_above = np.array(data_above_1500[' Force (Kg f)'])
-result_above = curve_fit(linear_eq, x_above, y_above, p0=[0])
+result_above = curve_fit(linear_eq, x_above,y_above, p0=[0])
+# result_above = curve_fit(linear_eq, y_above,x_above, p0=[0])
 
 # fit the -ve thrust
 y_below = np.array(data_below_1500[' PWM (µs)'])
 x_below = np.array(data_below_1500[' Force (Kg f)'])
+# result_below = curve_fit(linear_eq_below, y_below,x_below, p0=[0])
 result_below = curve_fit(linear_eq_below, x_below, y_below, p0=[0])
 
 # plot the data
 y_all = np.array(data[' PWM (µs)'])
 x_all = np.array(data[' Force (Kg f)'])
+# x_all, y_all = y_all, x_all
+# x_above, y_above = y_above, x_above
+# x_below, y_below = y_below, x_below
+print('slope_force_pos',1/result_above[0][0] )
+print('slope_force_neg',1/result_below[0][0] )
+print('c_force_pos',-c1/result_above[0][0] )
+print('c_force_neg',-c2/result_below[0][0] )
 print('slope for positive thrust is: ', result_above[0][0])
 print('slope for negative thrust is: ', result_below[0][0])
-plt.plot(x_above, linear_eq(x_above, result_above[0][0]), linewidth=4)
-plt.plot(x_below, linear_eq_below(x_below, result_below[0][0]), linewidth=4)
+# plt.plot(x_above, linear_eq(x_above, result_above[0][0]), linewidth=4)
+# plt.plot(x_below, linear_eq_below(x_below, result_below[0][0]), linewidth=4)
 plt.plot(x_all, y_all, '--', linewidth=4)
 plt.xlabel("Thrust Force (Kgf.)", **font)
 plt.ylabel("PWM", **font)

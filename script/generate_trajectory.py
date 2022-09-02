@@ -38,10 +38,11 @@ def quintic_Trajectory(theta_init, theta_final, t, t_final) :
 # -------- simulation----------------- 
 
 #Initialisation 
-t_final = 5
+t_final = 6.5
 Z_init = 0
 Z_final = 1  #1.5708
-iterr = 600
+iterr = 400
+
 fs = 20
 dt = 1/fs
 Z_desired, Zd_desired, Zdd_desired = np.zeros((3, iterr))  
@@ -53,26 +54,25 @@ for i in range(iterr):
 time = iterr * dt
 
 #---------PLot--------------------------
-# fig, axs = plt.subplots(3, figsize=(10, 20), facecolor='w', edgecolor='k')
-# fig.subplots_adjust(hspace = .6, wspace=.001)
+fig, axs = plt.subplots(3, figsize=(10, 20), facecolor='w', edgecolor='k')
+fig.subplots_adjust(hspace = .6, wspace=.001)
 
-# axs[0].plot(Z_desired)
-# axs[0].set_title("Position désirée")
-# axs[0].set_title("Position désirée")
-# axs[0].set(xlabel='time', ylabel='pos (m)')
+axs[0].plot(Z_desired)
+axs[0].set_title("Trajectoire désirée")
+axs[0].set(xlabel='time', ylabel='$x^* (m)$')
 
-# axs[1].plot(Zd_desired)
-# axs[1].set_title("Vitesse désirée")
-# axs[1].set(xlabel='time', ylabel='vel(m/s)')
+axs[1].plot(Zd_desired)
+axs[1].set_title("Vitesse désirée")
+axs[1].set(xlabel='time', ylabel='$u^* (m/s)$')
 
-# axs[2].plot(Zdd_desired)
-# axs[2].set_title("Accéleration désirée")
-# axs[2].set(xlabel='time', ylabel='acc(m/s^2)')
+axs[2].plot(Zdd_desired)
+axs[2].set_title("Accéleration désirée")
+axs[2].set(xlabel='time', ylabel='$\dot{u}^*(m/s^2)$')
  
 
-# for ax in axs.flat:
-#     ax.label_outer()
+for ax in axs.flat:
+    ax.label_outer()
     
-# plt.subplots_adjust(left=0.1, bottom=0.1, right=0.9,
-#                     top=0.9, wspace=0.4, hspace=0.4) 
-# plt.show()
+plt.subplots_adjust(left=0.1, bottom=0.1, right=0.9,
+                    top=0.9, wspace=0.4, hspace=0.4) 
+plt.show()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from __future__ import division 
+from __future__ import division
 import glob
 import math
 from os import kill
@@ -35,7 +35,6 @@ import time
 import sys
 import argparse
 import stopp
-
 # ---------- Global Variables ---------------
 global enable_depth
 global init_p0
@@ -50,10 +49,12 @@ pinger_confidence = 0
 pinger_distance = 0
 Vmax_mot = 1900
 Vmin_mot = 1100
-
+surge_pwm = 1500
+yaw_pwm = 1500
 # ---------- Conditions --------------------------
-init_a0 = True      
+init_a0 = True
 init_p0 = True
+init_t0 = True
 test_Model = False
 enable_depth = True  # don't Publish the depth data until asked
 enable_ping = True
@@ -71,8 +72,10 @@ q = 0                # angular velocity along y
 r = 0                # angular velocity along z
 
 # ---------- joystick callback ---------------
-def joyCallback(data):  
-    global initial_time_bool 
+
+
+def joyCallback(data):
+    global initial_time_bool
     global test_Model
     global depth_p0
     global arming
@@ -80,7 +83,7 @@ def joyCallback(data):
     global init_a0
     global init_p0
     global mode
-  
+
     # Joystick buttons
     btn_arm = data.buttons[7]               # start button
     btn_disarm = data.buttons[6]            # back button
@@ -122,6 +125,8 @@ def joyCallback(data):
         rospy.loginfo("Mode correction")
 
 # ---------- Arm/disarm motors ---------------
+
+
 def armDisarm(armed):
     # This functions sends a long command service with 400 code to arm or disarm motors
     if (armed):
@@ -143,7 +148,7 @@ def armDisarm(armed):
 
 
 # ---------- Velocity callback ---------------
-def velCallback(cmd_vel):  
+def velCallback(cmd_vel):
     global set_mode
     # Only continue if manual_mode is enabled
     if (set_mode[1] or set_mode[2]):
@@ -166,18 +171,20 @@ def pingerCallback(data):
 
     global pinger_confidence
     global pinger_distance
-    
-    # Extract the pinger data 
+
+    # Extract the pinger data
     if enable_ping == True:
-       pinger_distance = data.data[0] * 10**(-3) # distance (m)
+       pinger_distance = data.data[0] * 10**(-3)  # distance (m)
        pinger_confidence = data.data[1]
-      
+
     # # publish the distance(m)
     #    distance = Float64()
     #    distance.data = pinger_distance
     #    pub_distance.publish(distance)
 
-# ---------- IMU callback ---------------      
+# ---------- IMU callback ---------------
+
+
 def OdoCallback(data):
     global angle_roll_a0
     global angle_pitch_a0
@@ -207,10 +214,10 @@ def OdoCallback(data):
         init_a0 = False
 
     # Convert to degree
-    angle_wrt_startup[0] = (angle_roll - angle_roll_a0) * 180/math.pi 
-    angle_wrt_startup[1] = (angle_pitch - angle_pitch_a0 ) * 180/math.pi
+    angle_wrt_startup[0] = (angle_roll - angle_roll_a0) * 180/math.pi
+    angle_wrt_startup[1] = (angle_pitch - angle_pitch_a0) * 180/math.pi
     angle_wrt_startup[2] = (angle_yaw - angle_yaw_a0) * 180/math.pi
-    
+
     # publish the angle values (degree)
     angle = Twist()
     angle.angular.x = angle_wrt_startup[0]
@@ -222,7 +229,7 @@ def OdoCallback(data):
     p = angular_velocity.x * 180/math.pi
     q = angular_velocity.y * 180/math.pi
     r = angular_velocity.z * 180/math.pi
-    
+
     # publish the angular velocities (degree/s)
     ang_vel = Twist()
     ang_vel.angular.x = p
@@ -231,31 +238,30 @@ def OdoCallback(data):
     pub_angular_velocity.publish(ang_vel)
 
 
-
-
-# ---------- Pressure callback ---------------     
-# To validate the dynamic model we test diffrent motion (surge, sway and yaw motion) in BO   
-# Initialisation 
+# ---------- Pressure callback ---------------
+# To validate the dynamic model we test diffrent motion (surge, sway and yaw motion) in BO
+# Initialisation
 rho = 1000.0           # water density
 gravity = 9.80665      # gravity
-I0_psi= 0              # initial integral term for yaw controller 
-e0_psi = 0             # initial yaw error 
-yaw_d = 0              # desired yaw angle 
-e0_z = 0               # initial integral term for depth controller 
-I0_z = 0               # initial error for depth 
+I0_psi = 0              # initial integral term for yaw controller
+e0_psi = 0             # initial yaw error
+yaw_d = 0              # desired yaw angle
+e0_z = 0               # initial integral term for depth controller
+I0_z = 0               # initial error for depth
 depth_d = 0.3          # desired depth
-w_d = 0                # desired depth velocity 
-flotability = 0.19  
-initial_time_bool = True 
-current_time = 0       # current time (s) 
+w_d = 0                # desired depth velocity
+flotability = 0.19
+initial_time_bool = True
+current_time = 0       # current time (s)
 initial_time = 0
 dt = 0.03
 v_e0 = 0
 x_e0 = 0
 
-
+R = 0.5
+T = 10
 def PressureCallback(data):
-    
+
     global depth_wrt_startup
     global initial_time_bool
     global enable_depth
@@ -265,7 +271,10 @@ def PressureCallback(data):
     global test_Model
     global depth_p0
     global init_p0
-    global w_d 
+    global surge_pwm
+    global yaw_pwm
+    global init_t0
+    global w_d
     global dt
     global yaw_d
     global depth_d
@@ -273,126 +282,171 @@ def PressureCallback(data):
     global e0_psi
     global e0_z
     global I0_z
-    global v_e0 
-    global x_e0 
+    global v_e0
+    global x_e0
     global u
     global v
     global w
     global r
-    
-    # Desired trajectory for surge motion
-    xd_init = 0             # initial position (m) 
-    xd_final = 1            # final position (m) 
-    t_final_surge = 6.4
-    # Desired trajectory for surge motion
-    yd_init = 0            # final position (m) 
-    yd_final = 1           # final position (m) 
-    t_final_sway = 6
-    # Desired trajectory for surge motion
-    psid_init = 0          # initial position (m) 
-    psid_final = 1.5708    # final position (90 degree)
-    t_final_yaw = 3.5  
+    global t0
 
-    if(enable_depth):  
+    # # Desired trajectory for surge motion
+    # xd_init = 0             # initial position (m)
+    # xd_final = 1            # final position (m)
+    # t_final_surge = 6.4
+    # # Desired trajectory for surge motion
+    # yd_init = 0            # final position (m)
+    # yd_final = 1           # final position (m)
+    # t_final_sway = 6
+    # Desired trajectory for surge motion
+    psid_init = 0          # initial position (m)
+    psid_final = 1.5708    # final position (90 degree)
+    t_final_yaw = 3.5
+
+    if(enable_depth):
         pressure = data.fluid_pressure
         if (init_p0):
             # 1st execution, init
-            depth_p0 = (pressure - 101300)/(rho* gravity)
+            depth_p0 = (pressure - 101300)/(rho * gravity)
             init_p0 = False
 
         depth_wrt_startup = (pressure - 101300)/(rho * gravity) - depth_p0
-        
+
         if(test_Model):
             if initial_time_bool == True:
                 # 1st execution, init : calculate the initial time (s)
-                initial_time = rospy.Time.now().to_sec()       
+                initial_time = rospy.Time.now().to_sec()
                 initial_time_bool = False
             else:
                 # calculate the current time(s)
-                current_time = rospy.Time.now().to_sec() - initial_time 
+                current_time = rospy.Time.now().to_sec() - initial_time
 
-            
-            if motion == "heave" : 
-                # Depth control : with pid or SM 
-                #heave_force = PID_Controller(depth_d, depth_wrt_startup, Kp_z, Ki_z, Kd_z, e0_z, I0_z, dt, flotability, r = None)
-                
-                # calculate the real speed with alpha beta gamma filter 
-                real_Speed, x_e = alpha_beta_gamma_filter(x_e0, v_e0, 0, depth_wrt_startup, 0.45, 0.1, dt)
-                #print("real_Speed", real_Speed)
-                v_e0 = real_Speed
-                x_e0 = x_e
-                heave_force = - SM_Controller(depth_d, depth_wrt_startup, w_d, real_Speed, rhoo, K, phi)
+            if motion == "heave":
+                # Depth control : with pid or SM
+                heave_force = PID_Controller(depth_d, depth_wrt_startup, Kp_z, Ki_z, Kd_z, e0_z, I0_z, dt, flotability, r = None)
+
+                # # calculate the real speed with alpha beta gamma filter
+                # real_Speed, x_e = alpha_beta_gamma_filter(
+                #     x_e0, v_e0, 0, depth_wrt_startup, 0.45, 0.1, dt)
+                # # print("real_Speed", real_Speed)
+                # v_e0 = real_Speed
+                # x_e0 = x_e
+                # heave_force = - \
+                #     SM_Controller(depth_d, depth_wrt_startup,
+                #                   w_d, real_Speed, rhoo, K, phi)
                 # Send PWM commands to motors
                 heave_pwm = PWM_Cmd(heave_force)
                 setOverrideRCIN(1500, 1500, heave_pwm, 1500, 1500, 1500)
 
-            if motion == "surge" : # "moving forward" 
-                
+            if motion == "surge":  # "moving forward"
+
                 # Control the heading to ensure that the robot move in a straight line (P controller)
-                yaw_torque = yaw_Controller(yaw_d, angle_wrt_startup[2], r, Kp_psi, Ki_psi, Kd_psi, I0_psi, dt)
+                yaw_torque = yaw_Controller(
+                    yaw_d, angle_wrt_startup[2], r, Kp_psi, Ki_psi, Kd_psi, I0_psi, dt)
                 # Send PWM commands to motors
                 yaw_pwm = mapValueScalSat(yaw_torque)
-            
-                # Desired position/velocity and acceleration 
-                xd, ud, ud_d = quintic_Trajectory(xd_init , xd_final, current_time, t_final_surge) 
-                
+
+                # Desired position/velocity and acceleration
+                xd, ud, ud_d = quintic_Trajectory(
+                    xd_init, xd_final, current_time, t_final_surge)
+
                 # Calculate the necessary torque to move forward (using dynamic model)
-                Pos = np.array([xd, 0, 0, 0, 0, 0])         # position vector ([surge_pos, sway_pos, heave_pos, roll_pos, pitch_pos, yaw_pos ])
-                Vel_B = np.array([ud, 0, 0, 0, 0, 0])       # velocity vector ([surge_vel, sway_vel, heave_vel, roll_vel, pitch_vel, yaw_vel ])
-                Acc_B = np.array([ud_d, 0, 0, 0, 0, 0])     # acceleration vector ([surge_acc, sway_acc, heave_acc, roll_acc, pitch_acc, yaw_acc ])
+                # position vector ([surge_pos, sway_pos, heave_pos, roll_pos, pitch_pos, yaw_pos ])
+                Pos = np.array([xd, 0, 0, 0, 0, 0])
+                # velocity vector ([surge_vel, sway_vel, heave_vel, roll_vel, pitch_vel, yaw_vel ])
+                Vel_B = np.array([ud, 0, 0, 0, 0, 0])
+                # acceleration vector ([surge_acc, sway_acc, heave_acc, roll_acc, pitch_acc, yaw_acc ])
+                Acc_B = np.array([ud_d, 0, 0, 0, 0, 0])
                 torque = torque_rov(Acc_B, Pos, Vel_B)
                 # Send PWM commands to motors
                 surge_pwm = PWM_Cmd(torque[0])
-                setOverrideRCIN(1500, 1500, 1500, yaw_pwm ,surge_pwm, 1500)
-                
+                setOverrideRCIN(1500, 1500, 1500, yaw_pwm, surge_pwm, 1500)
+
                 # Publish surge force
                 force = Float64()
                 force.data = torque[0]
                 pub_force.publish(force)
 
-            if motion == "sway": #"sliding motion"
+            if motion == "sway":  # "sliding motion"
                 # Control the heading to ensure that the robot move in a straight line (P controller)
-                yaw_torque = yaw_Controller(yaw_d, angle_wrt_startup[2], r, Kp_psi, Ki_psi, Kd_psi, I0_psi, dt)
+                yaw_torque = yaw_Controller(
+                    yaw_d, angle_wrt_startup[2], r, Kp_psi, Ki_psi, Kd_psi, I0_psi, dt)
                 # Send PWM commands to motors
                 yaw_pwm = mapValueScalSat(yaw_torque)
-            
+
                 # Desired position/velocity and acceleration :
-                yd, vd, vd_d = quintic_Trajectory(yd_init, yd_final, current_time, t_final_sway) 
-                
+                yd, vd, vd_d = quintic_Trajectory(
+                    yd_init, yd_final, current_time, t_final_sway)
+
                 # Calculate the necessary torque to slide (using dynamic model)
                 Pos = np.array([0, yd, 0, 0, 0, 0])
                 Vel_B = np.array([0, vd, 0, 0, 0, 0])
-                Acc_B = np.array([0,vd_d, 0, 0, 0, 0])
+                Acc_B = np.array([0, vd_d, 0, 0, 0, 0])
                 torque = torque_rov(Acc_B, Pos, Vel_B)
                 sway_pwm = PWM_Cmd(torque[1])
-                setOverrideRCIN(1500, 1500, 1500, yaw_pwm , 1500, sway_pwm)
-                
+                setOverrideRCIN(1500, 1500, 1500, yaw_pwm, 1500, sway_pwm)
+
                 # publish sway force
                 force = Float64()
                 force.data = torque[1]
                 pub_force.publish(force)
-            
-            if motion == "yaw": #"heading motion"
+
+            if motion == "yaw":  # "heading motion"
                 # Desired position/velocity and acceleration :
-                psid, rd, rd_d = quintic_Trajectory(psid_init, psid_final, current_time, t_final_yaw) 
-                
+                psid, rd, rd_d = quintic_Trajectory(
+                    psid_init, psid_final, current_time, t_final_yaw)
+
                 # Calculate the necessary moment to turn around z (using dynamic model)
                 Pos = np.array([0, 0, 0, 0, 0, psid])
                 Vel_B = np.array([0, 0, 0, 0, 0, rd])
                 Acc_B = np.array([0, 0, 0, 0, 0, rd_d])
-              
+
                 # Send PWM commands to motors
                 torque = torque_rov(Acc_B, Pos, Vel_B)
                 yaw_pwm = PWM_Cmd(torque[5])
-                setOverrideRCIN(1500, 1500, 1500, yaw_pwm , 1500, 1500)
-    
+                setOverrideRCIN(1500, 1500, 1500, yaw_pwm, 1500, 1500)
+
                 # Publish yaw force
                 force = Float64()
                 force.data = torque[5]
                 pub_force.publish(force)
-            
-            
-          
+
+            if motion == "trajectory":  # "moving forward"
+                # Depth control : with pid or SM
+                heave_force = PID_Controller(depth_d, depth_wrt_startup, Kp_z, Ki_z, Kd_z, e0_z, I0_z, dt, flotability, r = None)
+                if init_t0 == True and depth_wrt_startup <= 0.3:
+                    # 1st execution, init : calculate the initial time (s)
+                    t0 = rospy.Time.now().to_sec()
+                    init_t0 = False
+                Ligne_droite()
+            if motion == "juliette_Trajectory" :
+               
+                if init_t0 == True :
+                    global T
+                    global R
+                    w_max = 3.8
+                    v_max = 0.93 
+                    w= 1.1 #(2 * math.pi) / T   #0.16  * math.pi / T
+                    v = 0 #w * R #0.6 #v_yaw * R
+                    # 1st execution, init : calculate the initial time (s)
+                    t0 = rospy.Time.now().to_sec()
+                    init_t0 = False
+                    c2w = 2 * 0.63 * 400 / 3.8  # coef de yaw_pwm
+                    c2v = 2 * 0.8 * 400 / 0.93  # coef de surge_pwm
+                    surge_pwm = (c2w * w + c2v * v + 3000) / 2
+                    yaw_pwm = (3000 + c2w * w - c2v * v) / 2
+                    print("surge_pwm ", surge_pwm )
+                    print("yaw_pwm ", yaw_pwm )
+
+                    # saturation 
+                    if surge_pwm>=1900:
+                        surge_pwm = 1900
+                    if yaw_pwm>=1900:
+                        yaw_pwm = 1900
+                    setOverrideRCIN(1500, 1500, 1500, yaw_pwm, surge_pwm, 1500)
+
+                cercle()
+
             # publish depth_wrt_startup data (m)
             msg = Float64()
             msg.data = depth_wrt_startup
@@ -403,8 +457,6 @@ def PressureCallback(data):
             distance.data = pinger_distance
             pub_distance.publish(distance)
 
-           
-
     # Only continue if manual_mode is disabled
     if (set_mode[0]):
         return
@@ -416,10 +468,10 @@ def PressureCallback(data):
         return
 
 
-# ---------- DVL callback ---------------     
+# ---------- DVL callback ---------------
 def DvlCallback(data):
     global set_mode
-    global angle_wrt_startup 
+    global angle_wrt_startup
     global u
     global v
     global w
@@ -427,14 +479,13 @@ def DvlCallback(data):
     u = data.velocity.x  # Linear velocity along x (surge)
     v = data.velocity.y  # Linear velocity along y (sway)
     w = data.velocity.z  # Linear velocity along z (heave)
-    
-    # # Extract linear velocity 
+
+    # # Extract linear velocity
     # linear_vel = Twist()
     # linear_vel.linear.x = u
     # linear_vel.linear.y = v
     # linear_vel.linear.z = w
     # pub_linear_vel.publish(linear_vel)
-
 
     # Only continue if manual_mode is disabled
     if (set_mode[0]):
@@ -445,7 +496,6 @@ def DvlCallback(data):
         # setOverrideRCIN ( Pitch , Roll , Heave , Yaw ,Surge, Sway)
         setOverrideRCIN(1500, 1500, 1700, 1500, 1500, 1500)
         return
-
 
 
 def mapValueScalSat(value):
@@ -472,20 +522,24 @@ def setOverrideRCIN(channel_pitch, channel_roll, channel_throttle, channel_yaw, 
 
     msg_override = OverrideRCIn()
 
-    msg_override.channels[0] = np.uint(channel_pitch)       # pulseCmd[4]--> pitch	
-    msg_override.channels[1] = np.uint(channel_roll)        # pulseCmd[3]--> roll 	
-    msg_override.channels[2] = np.uint(channel_throttle)    # pulseCmd[2]--> heave 
-    msg_override.channels[3] = np.uint( channel_yaw)        # pulseCmd[5]--> yaw		    
-  
-    msg_override.channels[4] = np.uint(channel_forward)     # pulseCmd[0]--> surge		
-    
-    msg_override.channels[5] = np.uint(channel_lateral)     # pulseCmd[1]--> sway
+    msg_override.channels[0] = np.uint(
+        channel_pitch)       # pulseCmd[4]--> pitch
+    msg_override.channels[1] = np.uint(
+        channel_roll)        # pulseCmd[3]--> roll
+    msg_override.channels[2] = np.uint(
+        channel_throttle)    # pulseCmd[2]--> heave
+    msg_override.channels[3] = np.uint(channel_yaw)        # pulseCmd[5]--> yaw
+
+    msg_override.channels[4] = np.uint(
+        channel_forward)     # pulseCmd[0]--> surge
+
+    msg_override.channels[5] = np.uint(
+        channel_lateral)     # pulseCmd[1]--> sway
     msg_override.channels[6] = 1500
     msg_override.channels[7] = 1500
-    
+
     # print("<3=====D ",msg_override)
     pub_msg_override.publish(msg_override)
-
 
 
 # ----------Functions ----------------
@@ -495,12 +549,12 @@ def PWM_Cmd(thrust_req):
         m = 86.93393326839376   # Slope of the positive force linear function
         b = 1536
     elif (thrust_req < 0 and thrust_req < abs(10**(-2))):
-        m = 110.918185437553874 # Slope of the negtaive force linear function
+        m = 110.918185437553874  # Slope of the negtaive force linear function
         b = 1464
-    else : 
+    else:
         m = 0
         b = 1500
-    PWM = int(m * thrust_req/4) + b 
+    PWM = int(m * thrust_req/4) + b
     if PWM > Vmax_mot:
         PWM = Vmax_mot
     if PWM < Vmin_mot:
@@ -508,6 +562,8 @@ def PWM_Cmd(thrust_req):
     return PWM
 
 # Function used to enble the depth calback
+
+
 def EnableDepthCallback(msg):
     global enable_depth
     global init_p0
@@ -517,6 +573,89 @@ def EnableDepthCallback(msg):
     init_p0 = True
 
 
+liste_temps_consignes = [6.5, 3.5]
+consignes_forward_yaw = [[1, 0], [0, 1.57]]
+indice_temps = 0
+
+def Ligne_droite():
+	global t0
+	global init_t0
+	global init_a0
+	global set_mode
+	global liste_temps_consignes
+	global indice_temps
+	global consignes_forward_yaw
+	global surge_pwm
+	global yaw_pwm
+    # Desired trajectory for surge motion
+	xd_init = 0             # initial position (m)
+	t_final_surge = 6.4
+	t_final_sway = 6
+
+	t_now = rospy.Time.now().to_sec() - t0
+
+	if (t_now > liste_temps_consignes[indice_temps]):
+		indice_temps += 1
+		t0 = rospy.Time.now().to_sec() 
+		t_now = rospy.Time.now().to_sec() - t0
+		init_a0 = True
+	print("t_now", t_now)
+
+	if indice_temps < len(liste_temps_consignes):
+		if indice_temps == 0:
+			xd_final = consignes_forward_yaw[indice_temps][0]
+			# Control the heading to ensure that the robot move in a straight line (P controller)
+			yaw_torque = yaw_Controller(0, angle_wrt_startup[2], r, Kp_psi, Ki_psi, Kd_psi, I0_psi, dt)
+			# Desired position/velocity and acceleration
+			xd, ud, ud_d = quintic_Trajectory(xd_init, xd_final, t_now, liste_temps_consignes[indice_temps])
+
+			# Calculate the necessary torque to move forward (using dynamic model)
+			# position vector ([surge_pos, sway_pos, heave_pos, roll_pos, pitch_pos, yaw_pos ])
+			Pos = np.array([xd, 0, 0, 0, 0, 0])
+            # velocity vector ([surge_vel, sway_vel, heave_vel, roll_vel, pitch_vel, yaw_vel ])
+			Vel_B = np.array([ud, 0, 0, 0, 0, 0])
+            # acceleration vector ([surge_acc, sway_acc, heave_acc, roll_acc, pitch_acc, yaw_acc ])
+			Acc_B = np.array([ud_d, 0, 0, 0, 0, 0])
+			torque = torque_rov(Acc_B, Pos, Vel_B)
+            # Send PWM commands to motors
+			surge_pwm = PWM_Cmd(torque[0])
+              # Send PWM commands to motors
+			yaw_pwm = mapValueScalSat(yaw_torque)
+
+		if indice_temps == 1:
+			yaw_d = consignes_forward_yaw[indice_temps][1]
+			# Desired position/velocity and acceleration :
+			psid, rd, rd_d = quintic_Trajectory(0, yaw_d, t_now, liste_temps_consignes[indice_temps])
+            # Calculate the necessary moment to turn around z (using dynamic model)
+			Pos = np.array([0, 0, 0, 0, 0, psid])
+			Vel_B = np.array([0, 0, 0, 0, 0, rd])
+			Acc_B = np.array([0, 0, 0, 0, 0, rd_d])
+
+            # Send PWM commands to motors
+			torque = torque_rov(Acc_B, Pos, Vel_B)
+			yaw_pwm = PWM_Cmd(torque[5])
+			surge_pwm = 1500
+		setOverrideRCIN(1500, 1500, 1500, yaw_pwm, surge_pwm, 1500)
+     
+	else:
+		indice_temps = 0
+		init_t0 = True
+  
+
+def cercle():
+    global t0
+    global T
+    t_now = rospy.Time.now().to_sec() - t0
+    if (t_now >T):
+        t0 = rospy.Time.now().to_sec() 
+        t_now = rospy.Time.now().to_sec() - t0
+        setOverrideRCIN(1500, 1500, 1500, 1500, 1500, 1500)
+        init_t0 = True
+    
+	
+
+	
+		
 def subscriber():
     rospy.Subscriber("joy", Joy, joyCallback)
     rospy.Subscriber("cmd_vel", Twist, velCallback)
@@ -531,6 +670,7 @@ def subscriber():
 if __name__ == '__main__':
     armDisarm(False)  # Not automatically disarmed at startup
     rospy.init_node('autonomous_MIR', anonymous=False)
+    t0 = rospy.Time.now().to_sec()
     pub_msg_override = rospy.Publisher("mavros/rc/override", OverrideRCIn, queue_size=10, tcp_nodelay=True)
     pub_angle_degre = rospy.Publisher( 'angle_degree', Twist, queue_size=10, tcp_nodelay=True)
     pub_depth = rospy.Publisher( 'pid/depth/state', Float64, queue_size=10, tcp_nodelay=True)

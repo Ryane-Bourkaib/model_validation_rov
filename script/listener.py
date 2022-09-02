@@ -1,14 +1,10 @@
 #!/usr/bin/env python
+
+import rospy
+import tf
 import math
-import numpy as np
-from itertools import count
-import rospy 
-import tf 
-from std_msgs.msg import Int16
-from std_msgs.msg import Float64
-from std_msgs.msg import Empty
 from std_msgs.msg import Float64MultiArray
-from std_msgs.msg import String
+from std_msgs.msg import String, Float64
 from mavros_msgs.msg import OverrideRCIn
 from sensor_msgs.msg import Joy
 from sensor_msgs.msg import Imu
@@ -17,20 +13,18 @@ from mavros_msgs.srv import CommandLong
 from geometry_msgs.msg import Twist
 
 
-
 # ---------- Global Variables ---------------
 Command_Vel = [0]*3
 Command_Vel[0] = 0.5	# Cmd along X
-Command_Vel[1] = 0		# Cmd along Y
-Command_Vel[2] = 0		# Cmd along Z
+Command_Vel[1] = 0	# Cmd along Y
+Command_Vel[2] = 0	# Cmd along Z
 
-Error_Vel = [0]*3		#Error velocity 
+Error_Vel = [0]*3
 
-angle_wrt_startup = [0]*3 
+angle_wrt_startup = [0]*3
 init_a0 = True
 
 depth_wrt_startup = 0
-depth_p0 = 0
 init_p0 = True
 
 Vmax_mot = 1900
@@ -38,13 +32,20 @@ Vmin_mot = 1100
 
 arming = False
 set_mode = [0]*3
-set_mode[0] = True				# Mode manual
-set_mode[1] = False				# Mode automatic without correction
-set_mode[2] = False				# Mode with correction
-enable_depth = False 			# Don't Publish the depth data until asked
-								# Error Accumulation
-custom_PID = False
-counter = 0
+set_mode[0] = True	# Mode manual
+set_mode[1] = False	# Mode automatic without correction
+set_mode[2] = False	# Mode with correction
+
+init_t0 = True
+
+liste_temps_consignes = [4,6,10]
+consignes_yaw_forward = [[1500, 1600], [1550, 1500], [1500, 1400]]
+indice_temps = 0
+
+choix_asserv_profondeur = True
+choix_ligne_droite = False
+
+
 def joyCallback(data):
 	global arming
 	global set_mode
@@ -92,19 +93,19 @@ def armDisarm(armed):
 	# This functions sends a long command service with 400 code to arm or disarm motors
 	if (armed):
 		rospy.wait_for_service('mavros/cmd/command')
-		try:
-			armService = rospy.ServiceProxy('mavros/cmd/command', CommandLong)
+    		try:
+        		armService = rospy.ServiceProxy('mavros/cmd/command', CommandLong)
 			armService(0, 400, 0, 1, 0, 0, 0, 0, 0, 0)
 			rospy.loginfo("Arming Succeeded")
-		except (rospy.ServiceException, e):
-			rospy.loginfo("Except arming")
+    		except rospy.ServiceException, e:
+        		rospy.loginfo("Except arming")
 	else:
 		rospy.wait_for_service('mavros/cmd/command')
-		try:
-			armService = rospy.ServiceProxy('mavros/cmd/command', CommandLong)
+    		try:
+        		armService = rospy.ServiceProxy('mavros/cmd/command', CommandLong)
 			armService(0, 400, 0, 0, 0, 0, 0, 0, 0, 0)
 			rospy.loginfo("Disarming Succeeded")
-		except (rospy.ServiceException, e):
+    		except rospy.ServiceException, e:
 			rospy.loginfo("Except disarming")	
 
 
@@ -160,47 +161,149 @@ def OdoCallback(data):
 	pub_angle_degre.publish(angle)
 
 
-def PressureCallback(data):
+
+def Asservissement_profondeur(data):
 	global depth_p0
 	global depth_wrt_startup
 	global init_p0
-	global enable_depth
-	global custom_PID
-	global counter
-
+	global integral
+	global init_t0 
+	global t0
 	rho = 1000.0 # 1025.0 for sea water
 	g = 9.80665
 
-	if(enable_depth ):
-		pressure = data.fluid_pressure
-		if (init_p0):
-			# 1st execution, init
-			depth_p0 += (pressure - 101300)/(rho*g)
-			counter += 1
-			if(counter == 100):
-				depth_p0 /= 100
-				init_p0 = False
+
+	pressure = data.fluid_pressure
+
+	if (init_p0):
+		# 1st execution, init
+		depth_p0 = (pressure - 101300)/(rho*g)
+		init_p0 = False
+		integral = 0
     
-		else:
-			depth_wrt_startup = (pressure - 101300)/(rho*g) - depth_p0
-			print(depth_wrt_startup)
+    	if (init_t0):
+        	init_t0 = False
+        	t0 = rospy.Time.now().to_sec()
 
-			if(custom_PID):
-				ControlDepth(0.5, depth_wrt_startup)
-			# else:
-				msg = Float64()
-				msg.data = depth_wrt_startup
-				pub_depth.publish(msg)
+    	t_now = rospy.Time.now().to_sec()
+	dt = t_now - t0
+	print('dt', dt)
 
+    	val_temps = Float64(0.0)
+    	val_temps.data = t_now
+    	pub_temps.publish(val_temps)
+    
+    
+
+	depth_wrt_startup = (pressure - 101300)/(rho*g) - depth_p0
+	
+	val_profondeur = Float64(0.0)
+	val_profondeur.data = depth_wrt_startup
+	pub_profondeur.publish(val_profondeur)
+	
+	
+	depth_ref = 0.5
+	Kp = 30
+	Ki = 0.05
+	
+	#setup depth servo control here
+	error = depth_ref-depth_wrt_startup # z~ or epsilon
+	integral += error * dt
+
+	correction_T = Kp*(error) + 2.5 + Ki * integral # gravity/flotability compensation
+	print("depth ref", depth_ref)
+	print("depth_wrt_startup",depth_wrt_startup)
+	print("depth_ref-depth_wrt_startup", depth_ref-depth_wrt_startup)
+	
+	if correction_T > 0:
+	 	Correction_depth = 7.07*correction_T + 1528
+	else:
+		Correction_depth = 9.063*correction_T + 1472
+	print("tau", correction_T)
+	print("error depth:", Correction_depth)
+
+	
+
+	#Correction_depth = 1500	
+	
+
+	# Send PWM commands to motors
+	Correction_depth = int(Correction_depth)
+	setOverrideRCIN(1500, 1500, Correction_depth, 1500, 1500, 1500)
+	t0 = t_now
+	print(dt)
+
+def Ligne_droite():
+	global t0
+	global init_t0
+	global set_mode
+
+	global liste_temps_consignes
+	global indice_temps
+	global consignes_yaw_forward
+	
+	t_now = rospy.Time.now().to_sec()-t0
+	
+	if (t_now>liste_temps_consignes[indice_temps]):
+		indice_temps += 1
+
+	if indice_temps<len(liste_temps_consignes):
+		cons_yaw = consignes_yaw_forward[indice_temps][0] 
+		cons_fw = consignes_yaw_forward[indice_temps][1]
+		setOverrideRCIN(1500, 1500, 1500, cons_yaw, cons_fw, 1500)
+	
+	else:		
+		indice_temps = 0
+		init_t0 = True
+		set_mode[0] = True
+		set_mode[1] = False
+		set_mode[2] = False		
+		Dont_move()
+		
+
+
+
+def Dont_move():
+	setOverrideRCIN(1500, 1500, 1500, 1500, 1500, 1500)
+
+
+def PressureCallback(data):
+	global init_t0
+	global t0
 
 	# Only continue if manual_mode is disabled
-	if (set_mode[0]):
-		return
-	elif (set_mode[1]):
-		# Only continue if automatic_mode is enabled
-		# Define an arbitrary velocity command and observe robot's velocity
-		setOverrideRCIN(1500, 1500, 1500, 1500, 1700, 1500)
-		return
+	if arming:
+		if (set_mode[0]):
+			#print("Je suis ici")
+			return
+
+		elif (set_mode[1]):
+			# Only continue if automatic_mode is enabled
+			# Define an arbitrary velocity command and observe robot's velocity
+			setOverrideRCIN(1500, 1500, 1500, 1500, 1500, 1500)
+			return
+
+		else:
+			
+			#print("Je repasse")
+			if (init_t0):
+        			init_t0 = False
+        			t0 = rospy.Time.now().to_sec()
+
+			if choix_asserv_profondeur:
+				Asservissement_profondeur(data)
+
+			elif choix_ligne_droite:
+				Ligne_droite()
+
+	    		else:
+				Dont_move()
+	
+	else:
+		init_t0 = True
+		set_mode[0] = True
+		set_mode[1] = False
+		set_mode[2] = False
 
 
 
@@ -228,82 +331,34 @@ def setOverrideRCIN(channel_pitch, channel_roll, channel_throttle, channel_yaw, 
 	# In this case, each channel manages a group of motors not individually as servo set
 
 	msg_override = OverrideRCIn()
-
-	msg_override.channels[0] = np.uint(channel_pitch)		#pulseCmd[4]  # pitch		Tangage
-	msg_override.channels[1] = np.uint(channel_roll)			#pulseCmd[3]  # roll 		Roulis
-	msg_override.channels[2] = np.uint(channel_throttle)		#pulseCmd[2]  # up/down		Montee/descente
-	msg_override.channels[3] = np.uint(channel_yaw)			#pulseCmd[5]  # yaw		Lace
-	msg_override.channels[4] = np.uint(channel_forward)		#pulseCmd[0]  # forward		Devant/derriere
-	msg_override.channels[5] = np.uint(channel_lateral)		#pulseCmd[1]  # lateral		Gauche/droite
+	msg_override.channels[0] = channel_pitch		#pulseCmd[4]  # pitch		Tangage
+	msg_override.channels[1] = channel_roll			#pulseCmd[3]  # roll 		Roulis
+	msg_override.channels[2] = channel_throttle		#pulseCmd[2]  # up/down		Montee/descente
+	msg_override.channels[3] = channel_yaw			#pulseCmd[5]  # yaw		Lace
+	msg_override.channels[4] = channel_forward		#pulseCmd[0]  # forward		Devant/derriere
+	msg_override.channels[5] = channel_lateral		#pulseCmd[1]  # lateral		Gauche/droite
 	msg_override.channels[6] = 1500
 	msg_override.channels[7] = 1500
-	# print("<3=====D ",msg_override)
+
 	pub_msg_override.publish(msg_override)
 
-
-def DoThing(msg):
-	print(msg.data)
-	setOverrideRCIN(1500, 1500, msg.data, 1500, 1500, 1500)
-
-def PI_Controller_With_Comp(x_desired, x_real, K_P, K_I, step, I0,g):
-    
-    e = x_desired - x_real  # Error between the real and desired value
-    P = K_P * e                          #Proportional controller 
-    I = I0 + K_I * e * step              #Integral controller
-    # Tau = P + g
-    Tau = P + I + g                      #Output of the PID controller 
-    I0 = I                               #Update the initial value of integral controller 
-    
-    return -Tau, I0
-
-def PIDControlCallback(pid_effort, floatability = 0):
-	thrust_req = floatability + pid_effort.data
-	m = 76
-	c = 1532
-	pwm = int(m*thrust_req/4) + c
-	setOverrideRCIN(1500, 1500, pwm, 1500, 1500, 1500)
-
-def ControlDepth(z_desired, z_actual):
-	global I0
-	K_P = 2
-	K_I = 0.01
-	step = 0.02
-	g = 0.3
-	thrust_req, I0 = PI_Controller_With_Comp(z_desired, z_actual, K_P, K_I, step, I0 ,g)
-	if thrust_req >= 0:
-		m = 104.4
-		c = 1540
-	else:
-		m = 132.7
-		c = 1460
-	pwm = int(m*thrust_req/4) + c
-	setOverrideRCIN(1500, 1500, pwm, 1500, 1500, 1500)
-
-def EnableDepthCallback(msg):
-	global counter 
-	global enable_depth
-	global init_p0
-	counter = 0
-	enable_depth = True
-	init_p0 = True
 
 def subscriber():
 	rospy.Subscriber("joy", Joy, joyCallback)
 	rospy.Subscriber("cmd_vel", Twist, velCallback)
 	rospy.Subscriber("mavros/imu/data", Imu, OdoCallback)
 	rospy.Subscriber("mavros/imu/water_pressure", FluidPressure, PressureCallback)
-	rospy.Subscriber("pid/depth/control_effort", Float64, PIDControlCallback)
-	rospy.Subscriber("enable_depth", Empty, EnableDepthCallback)
-	rospy.Subscriber("do/thing", Int16, DoThing)
 	rospy.spin() # Execute subscriber in loop
 
 
 if __name__ == '__main__':
-	#armDisarm(False) # Not automatically disarmed at startup
+	armDisarm(False) # Not automatically disarmed at startup
 	rospy.init_node('autonomous_MIR', anonymous=False)
+	t0 = rospy.Time.now().to_sec()
 	pub_msg_override = rospy.Publisher("mavros/rc/override", OverrideRCIn, queue_size=10, tcp_nodelay=True)
 	pub_angle_degre = rospy.Publisher('angle_degree', Twist, queue_size=10, tcp_nodelay=True)
-	pub_depth = rospy.Publisher('pid/depth/state', Float64, queue_size=10, tcp_nodelay=True)
+	pub_temps = rospy.Publisher('temps', Float64, queue_size=10, tcp_nodelay=True)
+	pub_profondeur = rospy.Publisher('profondeur', Float64, queue_size=10, tcp_nodelay=True)
 	subscriber()
 
 

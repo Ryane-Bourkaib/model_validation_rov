@@ -22,7 +22,7 @@
     <!-- Parameters -->
 
     <!-- Motion validation : motion = "surge", "sway", "yaw" or "heave"-->
-    <arg name="motion" default= "heave"/>  
+    <arg name="motion" default= "juliette_Trajectory"/>  
 
     <!-- Heading -->
      <arg name="Kp_psi" default= "0.0149"/>  
@@ -43,11 +43,11 @@
      
      
     <!-- Launch the script file -->
-    <node respawn="true" pkg="model_validation_rov" type="listener_model_validation.py" name="listener" output="screen" args="--motion $(arg motion) --Kp_psi $(arg Kp_psi) --Ki_psi $(arg Ki_psi) --Kd_psi $(arg Kd_psi) --Kp_z $(arg Kp_z) --Ki_z $(arg Ki_z) --Kd_z $(arg Kd_z) --K $(arg K) --phi $(arg phi) --rhoo0 $(arg rhoo0) --rhoo1 $(arg rhoo1)"
+    <node respawn="true" pkg="model_validation_rov" type="listener_hugel.py" name="listener" output="screen" args="--motion $(arg motion) --Kp_psi $(arg Kp_psi) --Ki_psi $(arg Ki_psi) --Kd_psi $(arg Kd_psi) --Kp_z $(arg Kp_z) --Ki_z $(arg Ki_z) --Kd_z $(arg Kd_z) --K $(arg K) --phi $(arg phi) --rhoo0 $(arg rhoo0) --rhoo1 $(arg rhoo1)"
            ></node>
   
     <!-- Recording : bags name -->
-    <!-- <arg name="bag_name" default="ModelValidation_motion$(arg motion)"/>
+    <!-- <arg name="bag_name" default="ModelValidation_motion$(arg motion)_Kp(arg Kp_psi)"/>
 
     <node name="bag_record" pkg="rosbag" type="record" args="record -o $(find model_validation_rov)/bags/$(arg bag_name).bag /$(arg ns)/distance /$(arg ns)/mavros/rc/override /$(arg ns)/angular_velocity /$(arg ns)/angle_degree /$(arg ns)/force /$(arg ns)/linear_velocity">
        </node> -->
